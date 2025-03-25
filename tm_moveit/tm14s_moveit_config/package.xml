@@ -3,9 +3,8 @@
 <package format="3">
   <name>tm14s_moveit_config</name>
   <version>0.3.0</version>
-  <description>
-     An automatically generated package with all the configuration and launch files for using the tm14s with the MoveIt Motion Planning Framework
-  </description>
+  <description> An automatically generated package with all the configuration and launch files for
+    using the tm14s with the MoveIt Motion Planning Framework </description>
   <maintainer email="yh.wang@tm-robot.com">Yh Wang</maintainer>
 
   <license>BSD-3-Clause</license>
@@ -42,7 +41,7 @@
   <exec_depend>rviz_default_plugins</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>tm_description</exec_depend>
-  <exec_depend>warehouse_ros_mongo</exec_depend>
+  <!-- <exec_depend>warehouse_ros_mongo</exec_depend> -->
   <exec_depend>xacro</exec_depend>
 
 
