@@ -13,11 +13,12 @@
 //
 
 TmSctCommunication::TmSctCommunication(const std::string &ip,
-	int recv_buf_len, bool &isOnListenNode, std::condition_variable *cv )
-	: TmCommunication(ip.c_str(), 5890,recv_buf_len) , isOnListenNode(isOnListenNode)
+									   int recv_buf_len, bool &isOnListenNode, std::condition_variable *cv)
+	: TmCommunication(ip.c_str(), 5890, recv_buf_len), isOnListenNode(isOnListenNode)
 {
 	print_info("Listen node communication: TmSctCommunication");
-	if (cv) {
+	if (cv)
+	{
 		_cv = cv;
 		_has_thread = true;
 	}
@@ -33,10 +34,14 @@ bool TmSctCommunication::start_tm_sct(int timeout_ms)
 	halt();
 	print_info("Listen node communication: start");
 
-	bool rb = connect_socket("listen node communication",timeout_ms);
-	//if (!rb) return rb; // ? start thread anyway
+	bool rb = connect_socket("listen node communication", timeout_ms);
+	if (!rb)
+	{
+		print_warn("Listen node communication: socket connection failed");
+	}
 
-	if (_has_thread) {
+	if (_has_thread)
+	{
 		// start thread
 		_recv_thread = std::thread(std::bind(&TmSctCommunication::tm_sct_thread_function, this));
 	}
@@ -45,41 +50,46 @@ bool TmSctCommunication::start_tm_sct(int timeout_ms)
 
 void TmSctCommunication::halt()
 {
-	if (_has_thread) {
+	if (_has_thread)
+	{
 		_keep_thread_alive = false;
-		if (_recv_thread.joinable()) {
+		if (_recv_thread.joinable())
+		{
 			_recv_thread.join();
 		}
 		_updated = true;
 		_cv->notify_all();
 	}
-	if (is_connected()) {
+	if (is_connected())
+	{
 		print_info("Listen node communication: halt");
 		close_socket();
 	}
 }
 
-void TmSctCommunication::check_script_is_exit(std::string script){
-  std::string compareString = "ScriptExit()";
-  if(compareString.compare(script) == 0){
-    isOnListenNode  = false;
-  }
+void TmSctCommunication::check_script_is_exit(std::string script)
+{
+	std::string compareString = "ScriptExit()";
+	if (compareString.compare(script) == 0)
+	{
+		isOnListenNode = false;
+	}
 }
 
 TmCommRC TmSctCommunication::send_script_str(const std::string &id, const std::string &script)
 {
 	check_script_is_exit(script);
 	std::string sct = script;
-	TmSctData cmd{ id, sct.data(), sct.size(), TmSctData::SrcType::Shallow };
-	TmPacket pack{ cmd };
+	TmSctData cmd{id, sct.data(), sct.size(), TmSctData::SrcType::Shallow};
+	TmPacket pack{cmd};
 	return send_packet_all(pack);
 }
 
 TmCommRC TmSctCommunication::send_script_str_silent(const std::string &id, const std::string &script)
 {
 	std::string sct = script;
-	TmSctData cmd{ id, sct.data(), sct.size(), TmSctData::SrcType::Shallow };
-	TmPacket pack{ cmd };
+	TmSctData cmd{id, sct.data(), sct.size(), TmSctData::SrcType::Shallow};
+	TmPacket pack{cmd};
 	return send_packet_silent_all(pack);
 }
 
@@ -91,8 +101,8 @@ TmCommRC TmSctCommunication::send_script_exit()
 TmCommRC TmSctCommunication::send_sta_request(const std::string &subcmd, const std::string &subdata)
 {
 	std::string data = subdata;
-	TmStaData req{ subcmd, data.data(), data.size(), TmStaData::SrcType::Shallow };
-	TmPacket pack{ req };
+	TmStaData req{subcmd, data.data(), data.size(), TmStaData::SrcType::Shallow};
+	TmPacket pack{req};
 	return send_packet_all(pack);
 }
 
@@ -102,7 +112,7 @@ std::string TmSctCommunication::mtx_sct_response(std::string &id)
 	{
 		std::lock_guard<std::mutex> lck(mtx_sct);
 		id = sct_data.script_id();
-		rs = std::string{ sct_data.script(), sct_data.script_len() };
+		rs = std::string{sct_data.script(), sct_data.script_len()};
 	}
 	return rs;
 }
@@ -113,7 +123,7 @@ std::string TmSctCommunication::mtx_sta_response(std::string &cmd)
 	{
 		std::lock_guard<std::mutex> lck(mtx_sta);
 		cmd = sta_data.subcmd_str();
-		rs = std::string{ sta_data.subdata(), sta_data.subdata_len() };
+		rs = std::string{sta_data.subdata(), sta_data.subdata_len()};
 	}
 	return rs;
 }
@@ -122,12 +132,15 @@ void TmSctCommunication::tm_sct_thread_function()
 {
 	print_info("Listen node communication: thread begin");
 	_keep_thread_alive = true;
-	while (_keep_thread_alive) {
+	while (_keep_thread_alive)
+	{
 		bool reconnect = false;
-		if (!recv_init()) {
+		if (!recv_init())
+		{
 			print_info("Listen node communication: is not connected");
 		}
-		while (_keep_thread_alive && is_connected() && !reconnect) {
+		while (_keep_thread_alive && is_connected() && !reconnect)
+		{
 			TmCommRC rc = tmsct_function();
 			{
 				std::lock_guard<std::mutex> lck(_mtx);
@@ -135,14 +148,16 @@ void TmSctCommunication::tm_sct_thread_function()
 			}
 			_cv->notify_all();
 
-			switch (rc) {
+			switch (rc)
+			{
 			case TmCommRC::ERR:
 			case TmCommRC::NOTREADY:
 			case TmCommRC::NOTCONNECT:
 				print_info("Listen node communication: rc=%d", int(rc));
 				reconnect = true;
 				break;
-			default: break;
+			default:
+				break;
 			}
 		}
 		close_socket();
@@ -154,22 +169,27 @@ void TmSctCommunication::tm_sct_thread_function()
 
 void TmSctCommunication::reconnect_function()
 {
-	if (!_keep_thread_alive) return;
-	if (_reconnect_timeval_ms <= 0) {
+	if (!_keep_thread_alive)
+		return;
+	if (_reconnect_timeval_ms <= 0)
+	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
 	print_info("Listen node communication: Reconnecting.. ");
 	int cnt = 0;
-	while (_keep_thread_alive && cnt < _reconnect_timeval_ms) {
-		if (cnt % 1000 == 0) {
+	while (_keep_thread_alive && cnt < _reconnect_timeval_ms)
+	{
+		if (cnt % 1000 == 0)
+		{
 			print_debug("%.1f sec...", 0.001 * (_reconnect_timeval_ms - cnt));
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		++cnt;
 	}
-	if (_keep_thread_alive && _reconnect_timeval_ms >= 0) {
+	if (_keep_thread_alive && _reconnect_timeval_ms >= 0)
+	{
 		print_info("0 sec\n Listen node communication: connect(%dms)...", (int)_reconnect_timeout_ms);
-		connect_socket("Listen node communication",_reconnect_timeout_ms);
+		connect_socket("Listen node communication", _reconnect_timeout_ms);
 	}
 }
 
@@ -178,24 +198,27 @@ TmCommRC TmSctCommunication::tmsct_function()
 	TmCommRC rc;
 	int n;
 	rc = recv_spin_once(1000, &n);
-	if (rc != TmCommRC::OK) {
+	if (rc != TmCommRC::OK)
+	{
 		return rc;
 	}
 	std::vector<TmPacket> &pack_vec = packet_list();
 
-	//TmCPError err_data_tmp;
+	// TmCPError err_data_tmp;
 	TmSctData sct_data_tmp;
 	TmStaData sta_data_tmp;
 
-	for (auto &pack : pack_vec) {
-		switch (pack.type) {
+	for (auto &pack : pack_vec)
+	{
+		switch (pack.type)
+		{
 		case TmPacket::Header::CPERR:
 			tmSctErrData.set_CPError(pack.data.data(), pack.data.size());
-            print_error("TM_SCT: CPERR %s",tmSctErrData.error_code_str().c_str());
+			print_error("TM_SCT: CPERR %s", tmSctErrData.error_code_str().c_str());
 			break;
 
 		case TmPacket::Header::TMSCT:
-			//print_info("TM_SCT: TMSCT");
+			// print_info("TM_SCT: TMSCT");
 			tmSctErrData.error_code(TmCPError::Code::Ok);
 
 			/*TmSctData::build_TmSctData(sct_data, pack.data.data(), pack.data.size(), TmSctData::SrcType::Shallow);
@@ -217,18 +240,18 @@ TmCommRC TmSctCommunication::tmsct_function()
 				TmSctData::build_TmSctData(sct_data, sct_data_tmp, TmSctData::SrcType::Deep);
 			}
 			if (sct_data.sct_has_error())
-			{				
+			{
 				print_error("TM_SCT: err: (%s): %s", sct_data.script_id().c_str(), sct_data.script());
-			}				
+			}
 			else
-			{				
+			{
 				print_info("TM_SCT: res: (%s): %s", sct_data.script_id().c_str(), sct_data.script());
-			}				
+			}
 
 			break;
 
 		case TmPacket::Header::TMSTA:
-			//print_info("TM_SCT: TMSTA");
+			// print_info("TM_SCT: TMSTA");
 			tmSctErrData.error_code(TmCPError::Code::Ok);
 
 			TmStaData::build_TmStaData(sta_data_tmp, pack.data.data(), pack.data.size(), TmStaData::SrcType::Shallow);
@@ -251,7 +274,8 @@ TmCommRC TmSctCommunication::tmsct_function()
 
 void TmSctCommunication::tmsta_function()
 {
-	switch (sta_data.subcmd()) {
+	switch (sta_data.subcmd())
+	{
 	case 0:
 		break;
 	case 1:
