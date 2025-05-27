@@ -120,7 +120,7 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-add_executable(demo_set_positions # robot does'nt move
+add_executable(demo_set_positions # robot doesn't move
   src/demo_set_positions.cpp
 )
 
@@ -260,6 +260,24 @@ ament_target_dependencies(demo_leave_listen_node
 
 install(TARGETS
   demo_leave_listen_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
+# Relative_motion_node
+add_executable(relative_motion_node
+  relative_motion_node_src/relative_motion_node.cpp
+)
+
+ament_target_dependencies(relative_motion_node
+  rclcpp
+  std_msgs
+  sensor_msgs
+  tm_msgs
+)
+
+install(TARGETS
+  relative_motion_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
