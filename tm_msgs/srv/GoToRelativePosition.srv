@@ -7,7 +7,7 @@ float64 z # z-axis relative movement in meters
 float64 rx_deg  # roll angular relative movement in degrees
 float64 ry_deg  # pitch angular relative movement in degrees
 float64 rz_deg  # yaw angular relative movement in degrees
-int8 speed_percent # speed of the movement as a percentage of maximum speed
+int32 speed_percent # speed of the movement as a percentage of maximum speed
 ---
 # Response indicating the result of the movement request
 bool goal_reached

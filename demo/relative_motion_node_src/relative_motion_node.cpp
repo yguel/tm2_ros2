@@ -16,6 +16,7 @@ using namespace std::chrono_literals;
 
 using std::placeholders::_1;
 using std::placeholders::_2;
+typedef typename tm_msgs::srv::SendScript SendScript;
 
 class RelativeMotionNode : public rclcpp::Node
 {
@@ -42,8 +43,8 @@ public:
 
   bool send_cmd(const std::string & cmd, const std::string & id)
   {
-    auto request = std::make_shared<tm_msgs::srv::SendScript::Request>();
-    request->id = id;
+    auto request = std::make_shared<SendScript::Request>();
+    request->id = "demo";//id;
     request->script = cmd;
 
     while (!m_send_script_client->wait_for_service(1s)) {
@@ -56,14 +57,14 @@ public:
       RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "service not available, waiting again...");
     }
 
-    auto result = m_send_script_client->async_send_request(request);
-    auto node_shared = this->shared_from_this();
-    // Wait for the result.
-    if (rclcpp::spin_until_future_complete(node_shared, result) ==
-      rclcpp::FutureReturnCode::SUCCESS)
-    {
-      std::string msg = id + std::string(" ") + cmd;
-      if (result.get()->ok) {
+    auto result_future = m_send_script_client->async_send_request(request);
+    std::future_status status = result_future.wait_for(10s);  // timeout to guarantee a graceful finish
+    if (status == std::future_status::ready) {
+      RCLCPP_INFO(this->get_logger(), "Received response");
+      std::shared_ptr<SendScript::Response> response = result_future.get();
+      // Do something with response
+      if (response.get()->ok) {
+        std::string msg = id + std::string(" ") + cmd;
         RCLCPP_INFO_STREAM(
           rclcpp::get_logger("rclcpp"), (std::string(
             "Relative motion OK: ") + msg).c_str());
@@ -71,7 +72,7 @@ public:
       } else {
         RCLCPP_INFO_STREAM(
           rclcpp::get_logger("rclcpp"), (std::string(
-            "Relative motion failed: ") + msg).c_str());
+            "Relative motion failed: ") + cmd).c_str());
         return false;
       }
     } else {
@@ -106,9 +107,11 @@ protected:
     ss << request->x << "," << request->y << "," << request->z << ","
        << request->rx_deg << "," << request->ry_deg << "," << request->rz_deg << ",";
     // speed percentage
-    ss << request->speed_percent << ", ";
+    ss << request->speed_percent << ",";
+    // The time interval to accelerate to top speed (ms)
+    ss << "200,";
     // blending percentage
-    ss << "200, ";
+    ss << "0,";
     // Disable precise positioning
     ss << "false)";
 
