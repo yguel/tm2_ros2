@@ -16,6 +16,7 @@ def generate_launch_description():
             package='tm_driver',
             executable='tm_driver',
             output='screen',
+            emulate_tty=True,
             arguments=args,
         )
     ])

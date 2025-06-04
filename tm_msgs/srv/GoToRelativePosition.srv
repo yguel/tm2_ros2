@@ -1,13 +1,14 @@
 # Request relative movements of the robot
 # The robot will move relative to its current position
 # The rotations are performed around the robot's current orientation and before any translation
-float64 x # x-axis relative movement in meters
-float64 y # y-axis relative movement in meters
-float64 z # z-axis relative movement in meters
+float64 x # x-axis relative movement in millimeters
+float64 y # y-axis relative movement in millimeters
+float64 z # z-axis relative movement in millimeters
 float64 rx_deg  # roll angular relative movement in degrees
 float64 ry_deg  # pitch angular relative movement in degrees
 float64 rz_deg  # yaw angular relative movement in degrees
 int32 speed_percent # speed of the movement as a percentage of maximum speed
+float32 timeout_s # timeout for the motion in seconds, if 0 is provided a default timeout of 300s is used.
 ---
 # Response indicating the result of the movement request
 bool goal_reached

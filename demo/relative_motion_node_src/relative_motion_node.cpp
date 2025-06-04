@@ -41,7 +41,7 @@ public:
       std::bind(&RelativeMotionNode::command_callback, this, _1, _2));
   }
 
-  bool send_cmd(const std::string & cmd, const std::string & id)
+  bool send_cmd(const std::string & cmd, const std::string & id, const std::chrono::duration<double> timeout=300s)
   {
     auto request = std::make_shared<SendScript::Request>();
     request->id = "demo";//id;
@@ -58,7 +58,14 @@ public:
     }
 
     auto result_future = m_send_script_client->async_send_request(request);
-    std::future_status status = result_future.wait_for(10s);  // timeout to guarantee a graceful finish
+    // Waits for the result to become available. 
+    // Blocks until specified timeout_duration has elapsed or the result 
+    // becomes available, whichever comes first.
+    // See: https://en.cppreference.com/w/cpp/thread/future/wait_for
+    // Use a timeout of 300s as a default
+    std::future_status status = result_future.wait_for(timeout);
+
+
     if (status == std::future_status::ready) {
       RCLCPP_INFO(this->get_logger(), "Received response");
       std::shared_ptr<SendScript::Response> response = result_future.get();
@@ -79,6 +86,8 @@ public:
       RCLCPP_ERROR_STREAM(
         rclcpp::get_logger("rclcpp"),
         (std::string("Failed to call service for relative motion: ") + cmd).c_str());
+      // Remove the service call (See: https://docs.ros.org/en/humble/p/rclcpp/generated/classrclcpp_1_1Client.html#_CPPv4N6rclcpp6Client18async_send_requestE13SharedRequest)
+      m_send_script_client->remove_pending_request(result_future);
       return false;
     }
     return false;
@@ -99,6 +108,17 @@ protected:
     std::shared_ptr<tm_msgs::srv::GoToRelativePosition::Response> response)
   {
     // For command format see Software_Expression - Editor - and - Listen - Node_1 .84_Rev1 .00_EN.pdf page 252
+
+    RCLCPP_INFO_STREAM(
+      this->get_logger(), std::endl <<
+      "x : " << request->x << std::endl <<
+      "y : " << request->y << std::endl <<
+      "z : " << request->z << std::endl <<
+      "Rx_deg : " << request->rx_deg << std::endl <<
+      "Ry_deg : " << request->ry_deg << std::endl <<
+      "Rz_deg : " << request->rz_deg << std::endl <<
+      "speed_percent : " << request->speed_percent << std::endl <<
+      "timeout_s : " << request->timeout_s);
 
     std::ostringstream ss;
     // C: expressed in current base, P: Speed format as a percentage, P: blending format as a percentage
@@ -125,7 +145,12 @@ protected:
     std::ostringstream id_ss;
     id_ss << "RelativeGoTo_" << m_cmd_id_counter;
 
-    response->goal_reached = send_cmd(cmd, id_ss.str());
+    if( 0 == request->timeout_s ){
+      response->goal_reached = send_cmd(cmd, id_ss.str()); }
+    else{
+      const std::chrono::duration<double> timeout(request->timeout_s);
+      response->goal_reached = send_cmd(cmd, id_ss.str(),timeout);
+    }
     m_cmd_id_counter++;
   }
 
