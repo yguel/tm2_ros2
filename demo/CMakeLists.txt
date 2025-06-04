@@ -264,12 +264,12 @@ install(TARGETS
 )
 
 
-# Relative_motion_node
-add_executable(relative_motion_node
-  relative_motion_node_src/relative_motion_node.cpp
+# Relative_motion_service_node
+add_executable(relative_motion_service_node
+  relative_motion_node_src/relative_motion_service_node.cpp
 )
 
-ament_target_dependencies(relative_motion_node
+ament_target_dependencies(relative_motion_service_node
   rclcpp
   std_msgs
   sensor_msgs
@@ -277,7 +277,7 @@ ament_target_dependencies(relative_motion_node
 )
 
 install(TARGETS
-  relative_motion_node
+  relative_motion_service_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

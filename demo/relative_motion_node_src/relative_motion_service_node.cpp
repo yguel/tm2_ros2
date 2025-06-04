@@ -2,7 +2,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "tm_msgs/srv/send_script.hpp"
-#include "tm_msgs/msg/svr_response.hpp"
+#include "tm_msgs/msg/sct_response.hpp"
 #include "tm_msgs/srv/go_to_relative_position.hpp"
 
 #include <chrono>
@@ -17,10 +17,10 @@ using std::placeholders::_1;
 using std::placeholders::_2;
 typedef typename tm_msgs::srv::SendScript SendScript;
 
-class RelativeMotionNode : public rclcpp::Node
+class RelativeMotionServiceNode : public rclcpp::Node
 {
 public:
-  RelativeMotionNode()
+  RelativeMotionServiceNode()
       : Node("Omron_relative_motion")
   {
     m_send_script_client = this->create_client<tm_msgs::srv::SendScript>("send_script");
@@ -32,19 +32,34 @@ public:
       return;
     }
 
-    m_svr_response_subscription = this->create_subscription<tm_msgs::msg::SvrResponse>(
-        "svr_response", 10, std::bind(&RelativeMotionNode::svr_response_callback, this, _1));
+    auto do_nothing = [](tm_msgs::msg::SctResponse::UniquePtr)
+    { assert(false); };
+
+    m_sct_response_subscription = this->create_subscription<tm_msgs::msg::SctResponse>(
+        "sct_response", 10, do_nothing);
+
+    // Add our subscription to our wait_set
+    m_wait_set.add_subscription(m_sct_response_subscription);
 
     // Create service server for relative motion commands
     m_relative_motion_service = this->create_service<tm_msgs::srv::GoToRelativePosition>(
         "go_to_relative_position",
-        std::bind(&RelativeMotionNode::command_callback, this, _1, _2));
+        std::bind(&RelativeMotionServiceNode::command_callback, this, _1, _2));
   }
 
-  bool send_cmd(const std::string &cmd, const std::string &id, const std::chrono::duration<double> timeout = 300s)
+  std::string create_id() const
+  {
+    unsigned int clamped_id = m_cmd_id_counter % 100;
+    std::ostringstream id_ss;
+    id_ss << "rm" << clamped_id;
+    return id_ss.str();
+  }
+
+  bool send_cmd(const std::string &cmd)
   {
     auto request = std::make_shared<SendScript::Request>();
-    request->id = "demo"; // id;
+    m_last_cmd_id = create_id();
+    request->id = m_last_cmd_id;
     request->script = cmd;
 
     while (!m_send_script_client->wait_for_service(1s))
@@ -60,65 +75,61 @@ public:
       RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "service not available, waiting again...");
     }
 
-    auto result_future = m_send_script_client->async_send_request(request);
-    // Waits for the result to become available.
-    // Blocks until specified timeout_duration has elapsed or the result
-    // becomes available, whichever comes first.
-    // See: https://en.cppreference.com/w/cpp/thread/future/wait_for
-    // Use a timeout of 300s as a default
-    std::future_status status = result_future.wait_for(timeout);
+    m_send_script_client->async_send_request(request);
+    // Increment the command ID counter
+    m_cmd_id_counter++;
 
-    if (status == std::future_status::ready)
+    // 2. Block until ready or timeout
+    auto result = m_wait_set.wait(m_sct_timeout_ms);
+    if (result.kind() != rclcpp::WaitResultKind::Ready)
     {
-      RCLCPP_INFO(this->get_logger(), "Received response");
-      std::shared_ptr<SendScript::Response> response = result_future.get();
-      // Do something with response
-      RCLCPP_INFO_STREAM(
-          rclcpp::get_logger("rclcpp"), (std::string(
-                                             "Relative motion response: ") +
-                                         std::string(response.get()->content))
-                                            .c_str());
-      if (response.get()->ok)
+      RCLCPP_ERROR_STREAM(
+          rclcpp::get_logger(
+              "rclcpp"),
+          "No SCT response after sending command. Timeout expired.");
+      // timed out or interrupted
+      return false;
+    }
+
+    // 3. “Take” the message out
+    tm_msgs::msg::SctResponse incoming;
+    rclcpp::MessageInfo msg_info;
+    auto status = m_sct_response_subscription->take(incoming, msg_info);
+    if (status)
+    {
+      // Decode sct message
+      // Check that id is correct
+      if (m_last_cmd_id != incoming.id)
       {
-        std::string msg = id + std::string(" ") + cmd;
-        RCLCPP_INFO_STREAM(
-            rclcpp::get_logger("rclcpp"), (std::string(
-                                               "Relative motion OK: ") +
-                                           msg)
-                                              .c_str());
-        return true;
-      }
-      else
-      {
-        RCLCPP_INFO_STREAM(
-            rclcpp::get_logger("rclcpp"), (std::string(
-                                               "Relative motion failed: ") +
-                                           cmd)
-                                              .c_str());
+        std::string err = std::string("Wrong id in SCT response after sending command. Expected: ") + m_last_cmd_id + std::string(" got ") + incoming.id;
+        RCLCPP_ERROR_STREAM(
+            rclcpp::get_logger(
+                "rclcpp"),
+            err.c_str());
         return false;
       }
+      if (incoming.script != std::string("OK"))
+      {
+        RCLCPP_ERROR_STREAM(
+            rclcpp::get_logger(
+                "rclcpp"),
+            "SCT response after sending command is not OK: " + incoming.script);
+        return false;
+      }
+      return true;
     }
     else
     {
       RCLCPP_ERROR_STREAM(
-          rclcpp::get_logger("rclcpp"),
-          (std::string("Failed to call service for relative motion: ") + cmd).c_str());
-      // Remove the service call (See: https://docs.ros.org/en/humble/p/rclcpp/generated/classrclcpp_1_1Client.html#_CPPv4N6rclcpp6Client18async_send_requestE13SharedRequest)
-      m_send_script_client->remove_pending_request(result_future);
+          rclcpp::get_logger(
+              "rclcpp"),
+          "Invalid SCT response after sending command.");
       return false;
     }
     return false;
   }
 
 protected:
-  void svr_response_callback(const tm_msgs::msg::SvrResponse::SharedPtr msg) const
-  {
-
-    RCLCPP_INFO_STREAM(
-        this->get_logger(),
-        "SvrResponse: id is = " << msg->id << ", mode is " << (int)msg->mode << ", content is " << msg->content << ", error code is " << (int)msg->error_code);
-  }
-
   void command_callback(
       const std::shared_ptr<tm_msgs::srv::GoToRelativePosition::Request> request,
       std::shared_ptr<tm_msgs::srv::GoToRelativePosition::Response> response)
@@ -134,19 +145,29 @@ protected:
                                 << "Ry_deg : " << request->ry_deg << std::endl
                                 << "Rz_deg : " << request->rz_deg << std::endl
                                 << "speed_percent : " << request->speed_percent << std::endl
-                                << "timeout_s : " << request->timeout_s);
+                                << "frame : " << request->frame);
 
-    std::string base = "LASER_ROS2";
-
+    std::string base = request->frame; //"LASER_ROS2";
+    if (base != std::string(""))
     {
       std::string cmd = "ChangeBase(\"" + base + "\")";
       RCLCPP_INFO_STREAM(
           this->get_logger(), "Changing base to: " << base);
-      // Setup the ID for the command
-      std::ostringstream id_ss;
-      id_ss << "ChangeBase_" << m_cmd_id_counter;
-      const std::chrono::duration<double> timeout(1s);
-      send_cmd(cmd, id_ss.str(), timeout);
+      // Send the command to change the base
+      if (!send_cmd(cmd))
+      {
+        RCLCPP_ERROR_STREAM(
+            this->get_logger(),
+            "Failed to change base to: " << base);
+        response->cmd_sent = false;
+        return;
+      }
+      else
+      {
+        RCLCPP_INFO_STREAM(
+            this->get_logger(),
+            "Base changed to: " << base);
+      }
     }
 
     std::ostringstream ss;
@@ -169,37 +190,27 @@ protected:
     RCLCPP_INFO_STREAM(
         this->get_logger(),
         "Relative motion command: " << ss.str());
-
-    // Setup the ID for the command
-    std::ostringstream id_ss;
-    id_ss << "RelativeGoTo_" << m_cmd_id_counter;
-
-    if (0 == request->timeout_s)
-    {
-      response->goal_reached = send_cmd(cmd, id_ss.str());
-    }
-    else
-    {
-      const std::chrono::duration<double> timeout(request->timeout_s);
-      response->goal_reached = send_cmd(cmd, id_ss.str(), timeout);
-    }
-    m_cmd_id_counter++;
+    response->cmd_sent = send_cmd(cmd);
   }
 
 protected:
-  rclcpp::Subscription<tm_msgs::msg::SvrResponse>::SharedPtr m_svr_response_subscription;
+  rclcpp::Subscription<tm_msgs::msg::SctResponse>::SharedPtr m_sct_response_subscription;
 
   rclcpp::Service<tm_msgs::srv::GoToRelativePosition>::SharedPtr m_relative_motion_service;
 
   rclcpp::Client<tm_msgs::srv::SendScript>::SharedPtr m_send_script_client;
 
+  rclcpp::WaitSet m_wait_set;
+
   unsigned int m_cmd_id_counter = 0;
+  std::string m_last_cmd_id;
+  std::chrono::milliseconds m_sct_timeout_ms = 1000ms;
 };
 
 int main(int argc, char *argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<RelativeMotionNode>());
+  rclcpp::spin(std::make_shared<RelativeMotionServiceNode>());
   rclcpp::shutdown();
   return 0;
 }

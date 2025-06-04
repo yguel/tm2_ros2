@@ -8,7 +8,7 @@ float64 rx_deg  # roll angular relative movement in degrees
 float64 ry_deg  # pitch angular relative movement in degrees
 float64 rz_deg  # yaw angular relative movement in degrees
 int32 speed_percent # speed of the movement as a percentage of maximum speed
-float32 timeout_s # timeout for the motion in seconds, if 0 is provided a default timeout of 300s is used.
+string frame # the frame of reference for the movement, e.g., "base_link", "odom", etc.
 ---
 # Response indicating the result of the movement request
-bool goal_reached
+bool cmd_sent # true if the command was successfully sent to the robot
