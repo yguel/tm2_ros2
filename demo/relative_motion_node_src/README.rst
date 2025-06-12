@@ -8,13 +8,13 @@ To launch the service, you can use the following command:
 
 .. code-block:: bash
 
-   ros2_humble_src && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && ros2 run demo relative_motion_service_node 
+   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && ros2_humble_src && ros2 run demo relative_motion_service_node 
 
 To use the service, you can call it with the following command:
 
 .. code-block:: bash
 
-   ros2_humble_src && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && ros2 service call /go_to_relative_position  tm_msgs/srv/GoToRelativePosition   "{x: 0.00, y: 30., z: 0., rx_deg: 0., ry_deg: 0., rz_deg: 0., speed_percent: 20, frame: LASER_ROS2}"
+   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && ros2_humble_src && ros2 service call /go_to_relative_position  tm_msgs/srv/GoToRelativePosition   "{x: 0.00, y: 30., z: 0., rx_deg: 0., ry_deg: 0., rz_deg: 0., speed_percent: 20, frame: LASER_ROS2}"
 
    If you set the frame as an empty string the robot will move relative to its current frame.
    If you set the frame as "LASER_ROS2" the robot will move relative to the frame LASER_ROS2.
