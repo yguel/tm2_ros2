@@ -21,7 +21,7 @@ class RelativeMotionServiceNode : public rclcpp::Node
 {
 public:
   RelativeMotionServiceNode()
-      : Node("Omron_relative_motion")
+      : Node("Omron_relative_motion_service")
   {
     m_send_script_client = this->create_client<tm_msgs::srv::SendScript>("send_script");
     if (!m_send_script_client->wait_for_service(1s))

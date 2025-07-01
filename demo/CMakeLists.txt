@@ -21,6 +21,7 @@ find_package(ament_cmake REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tm_msgs REQUIRED)
@@ -278,6 +279,24 @@ ament_target_dependencies(relative_motion_service_node
 
 install(TARGETS
   relative_motion_service_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# Relative_motion_node : the action server for relative motions
+add_executable(relative_motion_node
+  relative_motion_node_src/relative_motion_node.cpp
+)
+
+ament_target_dependencies(relative_motion_node
+  rclcpp
+  rclcpp_action
+  std_msgs
+  sensor_msgs
+  tm_msgs
+)
+
+install(TARGETS
+  relative_motion_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

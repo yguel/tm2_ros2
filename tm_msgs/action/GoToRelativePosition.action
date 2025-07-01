@@ -15,11 +15,13 @@ string frame # the frame of reference for the movement, e.g., "base_link", "odom
 bool goal_reached # true if the goal was reached
 ---
 # Feedback containing the status of the relative motion
+string motion_id # the ID of the motion command
 string status
-float64 x_error # x-axis error in millimeters
-float64 y_error # y-axis error in millimeters
-float64 z_error # z-axis error in millimeters
-float64 rx_error # roll angular error in degrees
-float64 ry_error # pitch angular error in degrees
-float64 rz_error # yaw angular error in degrees
-string error_frame # the frame of reference for the error, e.g., "base_link", "odom", etc.
+# TODO(@yguel): add the following fields to the feedback
+# float64 x_error # x-axis error in millimeters
+# float64 y_error # y-axis error in millimeters
+# float64 z_error # z-axis error in millimeters
+# float64 rx_error # roll angular error in degrees
+# float64 ry_error # pitch angular error in degrees
+# float64 rz_error # yaw angular error in degrees
+# string error_frame # the frame of reference for the error, e.g., "base_link", "odom", etc.
