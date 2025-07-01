@@ -296,7 +296,7 @@ public:
         "Relative motion command: " << motion_cmd);
       m_cmd_sent_time = this->get_clock()->now();
       if (!send_cmd(motion_cmd)) {
-        cancel_goal(goal_handle, result);
+        failed_goal(goal_handle, result);
         return;
       }
     }
@@ -307,7 +307,7 @@ public:
     {
       std::ostringstream ss;
       const unsigned int motion_id = motion_cmd_id();
-      ss << "QueueTag(\"" << motion_id << "\")";
+      ss << "QueueTag(" << motion_id << ")";
       const std::string tag_cmd = ss.str();
       // Log the tag command
       RCLCPP_INFO_STREAM(
@@ -320,7 +320,7 @@ public:
           "Failed to tag the motion: " << motion_id <<
             "impossible to determine when the motion will finish");
         stop_motion(); // As we do not know if the motion was started or not, we stop it
-        cancel_goal(goal_handle, result);
+        failed_goal(goal_handle, result);
         return;
       } else {
         std::ostringstream tag_ss;

@@ -264,24 +264,6 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-
-# Relative_motion_service_node
-add_executable(relative_motion_service_node
-  relative_motion_node_src/relative_motion_service_node.cpp
-)
-
-ament_target_dependencies(relative_motion_service_node
-  rclcpp
-  std_msgs
-  sensor_msgs
-  tm_msgs
-)
-
-install(TARGETS
-  relative_motion_service_node
-  DESTINATION lib/${PROJECT_NAME}
-)
-
 # Relative_motion_node : the action server for relative motions
 add_executable(relative_motion_node
   relative_motion_node_src/relative_motion_node.cpp
