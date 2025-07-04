@@ -51,7 +51,6 @@ set(srv_files
   "srv/SetIO.srv"
   "srv/SetPositions.srv"
   "srv/AskSta.srv"
-  "srv/GoToRelativePosition.srv"
 )
 
 set(action_files
