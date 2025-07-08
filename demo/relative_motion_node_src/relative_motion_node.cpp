@@ -26,7 +26,10 @@ public:
   using GoalHandle_GoToRelativePosition = rclcpp_action::ServerGoalHandle<GoToRelativePosition>;
 
   RelativeMotionNode(double feedback_rate_Hz = 50)
-  : Node("Omron_relative_motion"), m_feedback_rate_Hz(feedback_rate_Hz)
+  : Node("Omron_relative_motion")
+    , m_feedback_rate_Hz(feedback_rate_Hz)
+    , m_sct_waiter(m_sct_waiter_frequency)
+    , m_sta_waiter(feedback_rate_Hz)
   {
     m_send_script_client = this->create_client<tm_msgs::srv::SendScript>("send_script");
     if (!m_send_script_client->wait_for_service(1s)) {
@@ -36,21 +39,11 @@ public:
       return;
     }
 
-    auto do_nothing_sct = [](tm_msgs::msg::SctResponse::UniquePtr)
-      {assert(false);};
-
-    auto do_nothing_sta = [](tm_msgs::msg::StaResponse::UniquePtr)
-      {assert(false);};
-
     m_sct_response_subscription = this->create_subscription<tm_msgs::msg::SctResponse>(
-      "sct_response", 10, do_nothing_sct);
+      "sct_response", 10, std::bind(&RelativeMotionNode::sct_callback, this, _1));
 
     m_sta_response_subscription = this->create_subscription<tm_msgs::msg::StaResponse>(
-      "sta_response", 10, do_nothing_sta);
-
-    // Add our subscription to our wait_set
-    m_wait_set.add_subscription(m_sct_response_subscription);
-    m_wait_set.add_subscription(m_sta_response_subscription);
+      "sta_response", 10, std::bind(&RelativeMotionNode::sta_callback, this, _1));
 
     // Create action server for relative motion commands
     m_relative_motion_action_server = rclcpp_action::create_server<GoToRelativePosition>(
@@ -59,6 +52,18 @@ public:
       std::bind(&RelativeMotionNode::handle_goal, this, _1, _2),
       std::bind(&RelativeMotionNode::handle_cancel, this, _1),
       std::bind(&RelativeMotionNode::handle_accepted, this, _1));
+  }
+
+  void sta_callback(tm_msgs::msg::StaResponse::UniquePtr msg)
+  {
+    m_sta_msg = std::move(msg);
+    m_sta_msg_counter++;
+  }
+
+  void sct_callback(tm_msgs::msg::SctResponse::UniquePtr msg)
+  {
+    m_sct_msg = std::move(msg);
+    m_sct_msg_counter++;
   }
 
   std::string create_id() const
@@ -96,57 +101,52 @@ public:
       RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "service not available, waiting again...");
     }
 
-    // 2. Send motion command
+    // 2. Send command
+    unsigned int sct_count = m_sct_msg_counter;
     m_send_script_client->async_send_request(request_motion);
 
     // Increment the command ID counter
     m_cmd_counter++;
 
-    // 3. Block until ready or timeout
-    auto result = m_wait_set.wait(m_sct_timeout_ms);
-    if (result.kind() != rclcpp::WaitResultKind::Ready) {
+    // 3. Wait for the SCT response
+    auto current_time = this->get_clock()->now();
+    while (m_sct_msg_counter == sct_count &&
+      (this->get_clock()->now() - current_time) < m_sct_timeout_ms)
+    {
+      // Wait for the SCT response to be available
+      m_sct_waiter.sleep();
+    }
+    if (m_sct_msg_counter == sct_count) {
       RCLCPP_ERROR_STREAM(
         rclcpp::get_logger(
           "rclcpp"),
-        "No SCT response after sending command. Timeout expired.");
-      // timed out or interrupted
+        "No SCT response after sending command: " << cmd);
       return false;
     }
+    // Copy the SCT message
+    tm_msgs::msg::SctResponse incoming = std::move(*m_sct_msg);
 
-    // 4. “Take” the message out
-    tm_msgs::msg::SctResponse incoming;
-    rclcpp::MessageInfo msg_info;
-    auto status = m_sct_response_subscription->take(incoming, msg_info);
-    if (status) {
-      // Decode sct message
-      // Check that id is correct
-      if (m_last_cmd_id != incoming.id) {
-        std::string err =
-          std::string("Wrong id in SCT response after sending command. Expected: ") +
-          m_last_cmd_id + std::string(" got ") + incoming.id;
-        RCLCPP_ERROR_STREAM(
-          rclcpp::get_logger(
-            "rclcpp"),
-          err.c_str());
-        return false;
-      }
-      if (incoming.script != std::string("OK")) {
-        RCLCPP_ERROR_STREAM(
-          rclcpp::get_logger(
-            "rclcpp"),
-          "SCT response after sending command is not OK: " + incoming.script);
-        return false;
-      }
-
-      return true;
-    } else {
+    // Decode sct message
+    // Check that id is correct
+    if (m_last_cmd_id != incoming.id) {
+      std::string err =
+        std::string("Wrong id in SCT response after sending command. Expected: ") +
+        m_last_cmd_id + std::string(" got ") + incoming.id;
       RCLCPP_ERROR_STREAM(
         rclcpp::get_logger(
           "rclcpp"),
-        "Invalid SCT response after sending command.");
+        err.c_str());
       return false;
     }
-    return false;
+    if (incoming.script != std::string("OK")) {
+      RCLCPP_ERROR_STREAM(
+        rclcpp::get_logger(
+          "rclcpp"),
+        "SCT response after sending command is not OK: " + incoming.script);
+      return false;
+    }
+
+    return true;
   }
 
   rclcpp_action::GoalResponse handle_goal(
@@ -237,7 +237,7 @@ public:
 
   void execute(const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle)
   {
-    rclcpp::Rate loop_rate(m_feedback_rate_Hz);
+
     auto feedback = std::make_shared<GoToRelativePosition::Feedback>();
     auto result = std::make_shared<GoToRelativePosition::Result>();
     const auto goal = goal_handle->get_goal();
@@ -301,6 +301,8 @@ public:
       }
     }
 
+    unsigned int sta_count = 0;
+
     // 3. Record and queue a tag to be able to detect when the motion is
     // finished
     //====================================================================
@@ -314,6 +316,7 @@ public:
         this->get_logger(),
         "QueueTag for motion id: " << motion_id);
 
+      sta_count = m_sta_msg_counter;
       if (!send_cmd(tag_cmd)) {
         RCLCPP_ERROR_STREAM(
           this->get_logger(),
@@ -349,13 +352,12 @@ public:
           return;
         }
 
-        tm_msgs::msg::StaResponse sta_response;
-        rclcpp::MessageInfo msg_info;
-        auto status = m_sta_response_subscription->take(sta_response, msg_info);
-        if (status) {
+        if (sta_count != m_sta_msg_counter) {
+          // Copy the STA message
+          tm_msgs::msg::StaResponse sta_response = std::move(*m_sta_msg);
+
           // Check if the motion is finished and
-          // check if the STA response is related to the motion command we just sent and
-          //
+          // check if the STA response is related to the motion command we just sent
           if (sta_response.subcmd == "01") {
             if (sta_response.subdata == m_motion_tag + ",true") {
               RCLCPP_INFO_STREAM(
@@ -378,20 +380,24 @@ public:
                   "Motion info id,completed: " << sta_response.subdata << ". But it is not the one we were waiting for ("
                                                << m_motion_tag << ").");
                 // We do not stop the motion, as it is not the one we are waiting for
+                sta_count = m_sta_msg_counter; // Reset the STA count to wait for the next STA message
               }
             }
           }
-
-          // Provide feedback to the action client
-          feedback->motion_id = m_last_cmd_id;
-          if (m_motion_in_progress) {
-            feedback->status = "In progress";
-          } else {
-            feedback->status = "Finished";
-          }
-          goal_handle->publish_feedback(feedback);
-          loop_rate.sleep();
         }
+
+        // TODO(@yguel) add a timeout based on velocity and distance
+        // Wait for the STA response to be available
+        m_sta_waiter.sleep();
+
+        // Provide feedback to the action client
+        feedback->motion_id = m_last_cmd_id;
+        if (m_motion_in_progress) {
+          feedback->status = "In progress";
+        } else {
+          feedback->status = "Finished";
+        }
+        goal_handle->publish_feedback(feedback);
       }
 
       // Release the motion in progress and the command in progress flags
@@ -413,15 +419,22 @@ protected:
 
   rclcpp::Client<tm_msgs::srv::SendScript>::SharedPtr m_send_script_client;
 
-
   rclcpp::WaitSet m_wait_set;
+
+  unsigned int m_sta_msg_counter = 0; // Counter for the number of STA messages received
+  tm_msgs::msg::StaResponse::UniquePtr m_sta_msg; // Last STA message
+  unsigned int m_sct_msg_counter = 0; // Counter for the number of SCT messages
+  tm_msgs::msg::SctResponse::UniquePtr m_sct_msg; // Last SCT message
 
   bool m_cmd_in_progress = false;   // Flag to indicate if a command is in progress
   unsigned int m_cmd_counter = 0;
   unsigned int m_motion_counter = 0;   // Counter for motion commands
   std::string m_last_cmd_id = ""; // Last command ID sent to the robot
-  std::chrono::milliseconds m_sct_timeout_ms = 1000ms;
+  std::chrono::milliseconds m_sct_timeout_ms = 5000ms;
   std::string m_motion_tag = "";     // Tag for the current motion command
+  double m_sct_waiter_frequency = 200.0; // Frequency for the SCT waiter in Hz (200 Hz = 5ms)
+  rclcpp::Rate m_sct_waiter; // Sleeping object for waiting for SCT responses
+  rclcpp::Rate m_sta_waiter; // Sleeping object for waiting for STA responses
 
   // Store the time when the last command was sent
   // in order to make the matching between an sta response that acknowledges
@@ -434,7 +447,26 @@ protected:
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<RelativeMotionNode>());
+  rclcpp::ExecutorOptions options;
+  size_t num_threads = 2;
+  auto executor = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(options, num_threads);
+  auto node = std::make_shared<RelativeMotionNode>();
+  executor->add_node(node);
+
+  RCLCPP_INFO_STREAM(
+    rclcpp::get_logger("rclcpp"),
+    "Relative motion node started, waiting for commands...");
+
+  std::thread spin_thread([executor]() {
+      executor->spin();
+    });
+
+  executor->cancel();
+  spin_thread.join();
+
+  RCLCPP_INFO_STREAM(
+    rclcpp::get_logger("rclcpp"),
+    "Relative motion node stopped, exiting...");
   rclcpp::shutdown();
   return 0;
 }

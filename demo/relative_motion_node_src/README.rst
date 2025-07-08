@@ -14,7 +14,7 @@ To use the action server, you can call it with the following command:
 
 .. code-block:: bash
 
-   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && ros2_humble_src && ros2 action send_goal /go_to_relative_position tm_msgs/action/GoToRelativePosition "{x: 0.00, y: 30., z: 0., rx_deg: 0., ry_deg: 0., rz_deg: 0., speed_percent: 20, frame: LASER_ROS2}"
+   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && ros2_humble_src && ros2 action send_goal /go_to_relative_position tm_msgs/action/GoToRelativePosition "{x: 0.00, y: 30., z: 0., rx_deg: 0., ry_deg: 0., rz_deg: 0., speed_percent: 20, time_to_top_speed_ms: 300, frame: LASER_ROS2}"
 
 * If you set the frame as an empty string the robot will move relative to its current frame.
 * If you set the frame as "LASER_ROS2" the robot will move relative to the frame LASER_ROS2.
