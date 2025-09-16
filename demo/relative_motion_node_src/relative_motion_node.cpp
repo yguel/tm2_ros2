@@ -19,6 +19,15 @@ using std::placeholders::_1;
 using std::placeholders::_2;
 typedef typename tm_msgs::srv::SendScript SendScript;
 
+/**
+ * @brief Node to handle relative motion commands for the Omron robot.
+ *
+ * This node listens for action requests to move the robot to a relative position
+ * and handles the communication with the robot using SCT and STA messages.
+ * It moves the robot using the `Move_PTP` command (see "Omron TM Collaborative
+ * Robot: TMscript Language" I664-E-02, pages 305-306) and provides feedback
+ * on the motion status through the action server feedback.
+ */
 class RelativeMotionNode : public rclcpp::Node
 {
 public:
@@ -26,13 +35,11 @@ public:
   using GoalHandle_GoToRelativePosition = rclcpp_action::ServerGoalHandle<GoToRelativePosition>;
 
   RelativeMotionNode(double feedback_rate_Hz = 50)
-  : Node("Omron_relative_motion")
-    , m_feedback_rate_Hz(feedback_rate_Hz)
-    , m_sct_waiter(m_sct_waiter_frequency)
-    , m_sta_waiter(feedback_rate_Hz)
+  : Node("Omron_relative_motion"), m_feedback_rate_Hz(feedback_rate_Hz), m_sct_waiter(
+      m_sct_waiter_frequency), m_sta_waiter(feedback_rate_Hz)
   {
     m_send_script_client = this->create_client<tm_msgs::srv::SendScript>("send_script");
-    if (!m_send_script_client->wait_for_service(1s)) {
+    if (!m_send_script_client->wait_for_service(600s)) {
       RCLCPP_ERROR_STREAM(
         rclcpp::get_logger("rclcpp"), "Service 'send_script' not available, exiting.");
       rclcpp::shutdown();
@@ -202,7 +209,7 @@ public:
     result->goal_reached = false;
     goal_handle->canceled(result);
     m_motion_in_progress = false; // Reset the motion in progress flag
-    m_cmd_in_progress = false; // Reset the command in progress flag
+    m_cmd_in_progress = false;    // Reset the command in progress flag
     RCLCPP_INFO(this->get_logger(), "Goal canceled");
   }
 
@@ -210,22 +217,22 @@ public:
     const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle,
     std::shared_ptr<GoToRelativePosition::Result> result)
   {
-    //Motion is supposed to have stopped, we do not call stop_motion
+    // Motion is supposed to have stopped, we do not call stop_motion
     result->goal_reached = false;
     goal_handle->abort(result);
     m_motion_in_progress = false; // Reset the motion in progress flag
-    m_cmd_in_progress = false; // Reset the command in progress flag
+    m_cmd_in_progress = false;    // Reset the command in progress flag
   }
 
   inline void goal_reached(
     const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle,
     std::shared_ptr<GoToRelativePosition::Result> result)
   {
-    //Motion is supposed to have stopped, we do not call stop_motion
+    // Motion is supposed to have stopped, we do not call stop_motion
     result->goal_reached = true;
     goal_handle->succeed(result);
     m_motion_in_progress = false; // Reset the motion in progress flag
-    m_cmd_in_progress = false; // Reset the command in progress flag
+    m_cmd_in_progress = false;    // Reset the command in progress flag
   }
 
   void handle_accepted(const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle)
@@ -407,8 +414,68 @@ public:
     }
   }
 
+public:
+  /** Compute a duration estimation for a motion
+   * @param distance The distance to move in mm
+   * @param velocity The velocity in mm/s
+   * @param speed_percent The speed percentage (0-100)
+   * @param time_to_top_speed_ms The time to reach top speed in milliseconds
+   * @return The estimated duration of the motion in milliseconds
+   */
+  double motion_duration_estimation(
+    double distance, double velocity, double speed_percent,
+    double time_to_top_speed_ms)
+  {
+    // Convert speed percentage to actual speed in mm/s
+    double actual_speed = (velocity * speed_percent) / 100.0;
+
+    // Calculate the time to reach top speed in seconds
+    double time_to_top_speed_s = time_to_top_speed_ms / 1000.0;
+
+    double acceleration = actual_speed / time_to_top_speed_s; // mm/s^2
+
+    // Calculate the distance covered during acceleration to top speed
+    // Using the formula: distance = 0.5 * acceleration * time^2
+    // where acceleration = (final speed - initial speed) / time
+    // Here, initial speed is 0, so we can simplify to:
+    // distance_acceleration = 0.5 * actual_speed * time_to_top_speed_s
+    // This is the distance covered during the acceleration phase considered as
+    // a triangle area: constant acceleration from 0 to actual_speed over time_to_top_speed_s seconds.
+    // The speed follows a linear profile during the acceleration phase, then is constant at actual_speed.
+    double distance_acceleration = 0.5 * actual_speed * time_to_top_speed_s;
+
+    // We consider that the motion has 3 phases:
+    // 1. Acceleration phase: from 0 to actual_speed over time_to_top_speed_s seconds
+    // 2. Constant speed phase: at actual_speed for the remaining distance
+    // 3. Deceleration phase: from actual_speed to 0 over time_to_top_speed_s seconds
+
+    // If the distance is less than the distance covered during acceleration and deceleration
+    // we suppose that the robot will not reach the top speed
+    if (distance <= 2 * distance_acceleration) {
+      // TODO(@yguel) add a more precise estimation of the time in this case
+      //  For now, we assume that the robot will take the same time to accelerate and decelerate
+      //  and will not reach the top speed.
+      //  The time to accelerate to top speed is the same as the time to decelerate
+      //  and the distance covered during acceleration is the same as the distance covered during deceleration.
+      // d = 0.5 * a * t^2
+      // => t = sqrt(2 * d / a)
+      double max_speed_distance = distance / 2.0; // Half of the distance for acceleration and deceleration
+      double time_to_max_speed = std::sqrt(2 * max_speed_distance / acceleration);
+      // The total time is the time to accelerate to max speed and the time to decelerate
+      // to 0, which is the same as the time to accelerate.
+      // So the total time is 2 * time_to_max_speed.
+      return (2 * time_to_max_speed) * 1000.0; // Return in milliseconds
+    }
+
+    // Otherwise, calculate the total time including acceleration, deceleration and constant speed phases
+    double remaining_distance = distance - 2 * distance_acceleration;
+    double constant_speed_time = remaining_distance / actual_speed;
+
+    return (2 * time_to_top_speed_s + constant_speed_time) * 1000.0; // Return in milliseconds
+  }
+
 protected:
-  double m_feedback_rate_Hz;   // Feedback rate in Hz
+  double m_feedback_rate_Hz; // Feedback rate in Hz
 
   rclcpp::Subscription<tm_msgs::msg::SctResponse>::SharedPtr m_sct_response_subscription;
 
@@ -421,20 +488,20 @@ protected:
 
   rclcpp::WaitSet m_wait_set;
 
-  unsigned int m_sta_msg_counter = 0; // Counter for the number of STA messages received
+  unsigned int m_sta_msg_counter = 0;             // Counter for the number of STA messages received
   tm_msgs::msg::StaResponse::UniquePtr m_sta_msg; // Last STA message
-  unsigned int m_sct_msg_counter = 0; // Counter for the number of SCT messages
+  unsigned int m_sct_msg_counter = 0;             // Counter for the number of SCT messages
   tm_msgs::msg::SctResponse::UniquePtr m_sct_msg; // Last SCT message
 
-  bool m_cmd_in_progress = false;   // Flag to indicate if a command is in progress
+  bool m_cmd_in_progress = false; // Flag to indicate if a command is in progress
   unsigned int m_cmd_counter = 0;
-  unsigned int m_motion_counter = 0;   // Counter for motion commands
-  std::string m_last_cmd_id = ""; // Last command ID sent to the robot
+  unsigned int m_motion_counter = 0; // Counter for motion commands
+  std::string m_last_cmd_id = "";    // Last command ID sent to the robot
   std::chrono::milliseconds m_sct_timeout_ms = 5000ms;
-  std::string m_motion_tag = "";     // Tag for the current motion command
+  std::string m_motion_tag = "";         // Tag for the current motion command
   double m_sct_waiter_frequency = 200.0; // Frequency for the SCT waiter in Hz (200 Hz = 5ms)
-  rclcpp::Rate m_sct_waiter; // Sleeping object for waiting for SCT responses
-  rclcpp::Rate m_sta_waiter; // Sleeping object for waiting for STA responses
+  rclcpp::Rate m_sct_waiter;             // Sleeping object for waiting for SCT responses
+  rclcpp::Rate m_sta_waiter;             // Sleeping object for waiting for STA responses
 
   // Store the time when the last command was sent
   // in order to make the matching between an sta response that acknowledges
@@ -442,7 +509,6 @@ protected:
   rclcpp::Time m_cmd_sent_time;
   bool m_motion_in_progress = false;
 };
-
 
 int main(int argc, char * argv[])
 {
@@ -457,9 +523,8 @@ int main(int argc, char * argv[])
     rclcpp::get_logger("rclcpp"),
     "Relative motion node started, waiting for commands...");
 
-  std::thread spin_thread([executor]() {
-      executor->spin();
-    });
+  std::thread spin_thread([executor]()
+    {executor->spin();});
 
   executor->cancel();
   spin_thread.join();
