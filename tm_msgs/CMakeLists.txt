@@ -55,6 +55,7 @@ set(srv_files
 
 set(action_files
   "action/GoToRelativePosition.action"
+  "action/GoToPosition.action"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

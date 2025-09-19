@@ -277,8 +277,22 @@ ament_target_dependencies(relative_motion_node
   tm_msgs
 )
 
+# Absolute_motion_node : the action server for absolute motions
+add_executable(absolute_motion_node
+  absolute_motion_node_src/absolute_motion_node.cpp
+)
+
+ament_target_dependencies(absolute_motion_node
+  rclcpp
+  rclcpp_action
+  std_msgs
+  sensor_msgs
+  tm_msgs
+)
+
 install(TARGETS
   relative_motion_node
+  absolute_motion_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
