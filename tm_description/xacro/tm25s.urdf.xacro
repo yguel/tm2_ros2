@@ -3,7 +3,7 @@
 
   <xacro:arg name="ns" default="" />
   <xacro:arg name="prefix" default="" />
-  <xacro:arg name="color" default="none" />
+  <xacro:arg name="color" default="white" />
   <xacro:arg name="trans_hw_iface" default="hardware_interface/PositionJointInterface" />
 
   <xacro:include filename="$(find tm_description)/xacro/macro.gazebo.xacro" />
