@@ -35,30 +35,32 @@ public:
   using GoalHandle_GoToRelativePosition = rclcpp_action::ServerGoalHandle<GoToRelativePosition>;
 
   RelativeMotionNode(double feedback_rate_Hz = 50)
-  : Node("Omron_relative_motion"), m_feedback_rate_Hz(feedback_rate_Hz), m_sct_waiter(
-      m_sct_waiter_frequency), m_sta_waiter(feedback_rate_Hz)
+      : Node("Omron_relative_motion"), m_feedback_rate_Hz(feedback_rate_Hz), m_sct_waiter(
+                                                                                 m_sct_waiter_frequency),
+        m_sta_waiter(feedback_rate_Hz)
   {
     m_send_script_client = this->create_client<tm_msgs::srv::SendScript>("send_script");
-    if (!m_send_script_client->wait_for_service(600s)) {
+    if (!m_send_script_client->wait_for_service(600s))
+    {
       RCLCPP_ERROR_STREAM(
-        rclcpp::get_logger("rclcpp"), "Service 'send_script' not available, exiting.");
+          rclcpp::get_logger("rclcpp"), "Service 'send_script' not available, exiting.");
       rclcpp::shutdown();
       return;
     }
 
     m_sct_response_subscription = this->create_subscription<tm_msgs::msg::SctResponse>(
-      "sct_response", 10, std::bind(&RelativeMotionNode::sct_callback, this, _1));
+        "sct_response", 10, std::bind(&RelativeMotionNode::sct_callback, this, _1));
 
     m_sta_response_subscription = this->create_subscription<tm_msgs::msg::StaResponse>(
-      "sta_response", 10, std::bind(&RelativeMotionNode::sta_callback, this, _1));
+        "sta_response", 10, std::bind(&RelativeMotionNode::sta_callback, this, _1));
 
     // Create action server for relative motion commands
     m_relative_motion_action_server = rclcpp_action::create_server<GoToRelativePosition>(
-      this,
-      "go_to_relative_position",
-      std::bind(&RelativeMotionNode::handle_goal, this, _1, _2),
-      std::bind(&RelativeMotionNode::handle_cancel, this, _1),
-      std::bind(&RelativeMotionNode::handle_accepted, this, _1));
+        this,
+        "go_to_relative_position",
+        std::bind(&RelativeMotionNode::handle_goal, this, _1, _2),
+        std::bind(&RelativeMotionNode::handle_cancel, this, _1),
+        std::bind(&RelativeMotionNode::handle_accepted, this, _1));
   }
 
   void sta_callback(tm_msgs::msg::StaResponse::UniquePtr msg)
@@ -89,7 +91,7 @@ public:
     return rounded_motion_id + 1;
   }
 
-  bool send_cmd(const std::string & cmd)
+  bool send_cmd(const std::string &cmd)
   {
     auto request_motion = std::make_shared<SendScript::Request>();
     m_last_cmd_id = create_id();
@@ -97,12 +99,14 @@ public:
     request_motion->script = cmd;
 
     // 1. Ensure the send script service is available
-    while (!m_send_script_client->wait_for_service(1s)) {
-      if (!rclcpp::ok()) {
+    while (!m_send_script_client->wait_for_service(1s))
+    {
+      if (!rclcpp::ok())
+      {
         RCLCPP_ERROR_STREAM(
-          rclcpp::get_logger(
-            "rclcpp"),
-          "Interrupted while waiting for the service. Exiting.");
+            rclcpp::get_logger(
+                "rclcpp"),
+            "Interrupted while waiting for the service. Exiting.");
         return false;
       }
       RCLCPP_INFO_STREAM(rclcpp::get_logger("rclcpp"), "service not available, waiting again...");
@@ -118,16 +122,17 @@ public:
     // 3. Wait for the SCT response
     auto current_time = this->get_clock()->now();
     while (m_sct_msg_counter == sct_count &&
-      (this->get_clock()->now() - current_time) < m_sct_timeout_ms)
+           (this->get_clock()->now() - current_time) < m_sct_timeout_ms)
     {
       // Wait for the SCT response to be available
       m_sct_waiter.sleep();
     }
-    if (m_sct_msg_counter == sct_count) {
+    if (m_sct_msg_counter == sct_count)
+    {
       RCLCPP_ERROR_STREAM(
-        rclcpp::get_logger(
-          "rclcpp"),
-        "No SCT response after sending command: " << cmd);
+          rclcpp::get_logger(
+              "rclcpp"),
+          "No SCT response after sending command: " << cmd);
       return false;
     }
     // Copy the SCT message
@@ -135,21 +140,23 @@ public:
 
     // Decode sct message
     // Check that id is correct
-    if (m_last_cmd_id != incoming.id) {
+    if (m_last_cmd_id != incoming.id)
+    {
       std::string err =
-        std::string("Wrong id in SCT response after sending command. Expected: ") +
-        m_last_cmd_id + std::string(" got ") + incoming.id;
+          std::string("Wrong id in SCT response after sending command. Expected: ") +
+          m_last_cmd_id + std::string(" got ") + incoming.id;
       RCLCPP_ERROR_STREAM(
-        rclcpp::get_logger(
-          "rclcpp"),
-        err.c_str());
+          rclcpp::get_logger(
+              "rclcpp"),
+          err.c_str());
       return false;
     }
-    if (incoming.script != std::string("OK")) {
+    if (incoming.script != std::string("OK"))
+    {
       RCLCPP_ERROR_STREAM(
-        rclcpp::get_logger(
-          "rclcpp"),
-        "SCT response after sending command is not OK: " + incoming.script);
+          rclcpp::get_logger(
+              "rclcpp"),
+          "SCT response after sending command is not OK: " + incoming.script);
       return false;
     }
 
@@ -157,18 +164,19 @@ public:
   }
 
   rclcpp_action::GoalResponse handle_goal(
-    const rclcpp_action::GoalUUID & uuid,
-    std::shared_ptr<const GoToRelativePosition::Goal> goal)
+      const rclcpp_action::GoalUUID &uuid,
+      std::shared_ptr<const GoToRelativePosition::Goal> goal)
   {
     RCLCPP_INFO(
-      this->get_logger(), "Received goal request (dx,dy,dz,rx,ry,rz) [speed,time to top speed, frame] : (%fmm,%fmm,%fmm,%f°,%f°,%f°) [%d%%,%dms,%s]",
-      goal->x, goal->y, goal->z,
-      goal->rx_deg, goal->ry_deg, goal->rz_deg,
-      goal->speed_percent,
-      goal->time_to_top_speed_ms,
-      goal->frame.c_str());
+        this->get_logger(), "Received goal request (dx,dy,dz,rx,ry,rz) [speed,time to top speed, frame] : (%fmm,%fmm,%fmm,%f°,%f°,%f°) [%d%%,%dms,%s]",
+        goal->x, goal->y, goal->z,
+        goal->rx_deg, goal->ry_deg, goal->rz_deg,
+        goal->speed_percent,
+        goal->time_to_top_speed_ms,
+        goal->frame.c_str());
     (void)uuid; //< Unused parameter, avoid unused parameter warning
-    if (m_cmd_in_progress) {
+    if (m_cmd_in_progress)
+    {
       RCLCPP_ERROR(this->get_logger(), "A command is already in progress, rejecting new goal");
       return rclcpp_action::GoalResponse::REJECT;
     }
@@ -181,16 +189,18 @@ public:
   }
 
   rclcpp_action::CancelResponse handle_cancel(
-    const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle)
+      const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle)
   {
     RCLCPP_INFO(this->get_logger(), "Received request to cancel goal");
-    if (!m_cmd_in_progress) {
+    if (!m_cmd_in_progress)
+    {
       RCLCPP_WARN(this->get_logger(), "No command in progress, nothing to cancel");
       // If no command is in progress, we can just return ACCEPT
       return rclcpp_action::CancelResponse::REJECT;
     }
 
-    if (m_motion_in_progress) {
+    if (m_motion_in_progress)
+    {
       RCLCPP_INFO(this->get_logger(), "Stopping current motion");
       // A motion is in progress, we need to stop it
       stop_motion();
@@ -202,8 +212,8 @@ public:
   }
 
   inline void cancel_goal(
-    const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle,
-    std::shared_ptr<GoToRelativePosition::Result> result)
+      const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle,
+      std::shared_ptr<GoToRelativePosition::Result> result)
   {
     stop_motion(); // Stop the motion, because we do not know if it is still in progress
     result->goal_reached = false;
@@ -214,8 +224,8 @@ public:
   }
 
   inline void failed_goal(
-    const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle,
-    std::shared_ptr<GoToRelativePosition::Result> result)
+      const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle,
+      std::shared_ptr<GoToRelativePosition::Result> result)
   {
     // Motion is supposed to have stopped, we do not call stop_motion
     result->goal_reached = false;
@@ -225,8 +235,8 @@ public:
   }
 
   inline void goal_reached(
-    const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle,
-    std::shared_ptr<GoToRelativePosition::Result> result)
+      const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle,
+      std::shared_ptr<GoToRelativePosition::Result> result)
   {
     // Motion is supposed to have stopped, we do not call stop_motion
     result->goal_reached = true;
@@ -242,6 +252,17 @@ public:
     std::thread{std::bind(&RelativeMotionNode::execute, this, _1), goal_handle}.detach();
   }
 
+  /**
+   * @brief Executes the relative motion goal.
+   *
+   * This function handles the execution of a relative motion goal, including
+   * changing the base if specified, sending the relative motion command, and
+   * handling feedback, cancellation, and completion of the goal.
+   *
+   * Warning: this function has a side effect of changing the robot's base frame if specified in the goal.
+   *
+   * @param[in] goal_handle The handle to the goal being executed.
+   */
   void execute(const std::shared_ptr<GoalHandle_GoToRelativePosition> goal_handle)
   {
 
@@ -252,30 +273,41 @@ public:
 
     // 1. Change the base if specified
     //=================================
-    const std::string & base = goal->frame; //"LASER_ROS2";
-    if (base != std::string("")) {
+    const std::string &base = goal->frame; //"LASER_ROS2";
+    if (base != std::string("") && base != std::string("None"))
+    {
       std::string cmd = "ChangeBase(\"" + base + "\")";
       RCLCPP_INFO_STREAM(
-        this->get_logger(), "Changing base to: " << base);
+          this->get_logger(), "Changing base to: " << base);
       // Send the command to change the base
-      if (!send_cmd(cmd)) {
+      if (!send_cmd(cmd))
+      {
         RCLCPP_ERROR_STREAM(
-          this->get_logger(),
-          "Failed to change base to: " << base);
+            this->get_logger(),
+            "Failed to change base to: " << base);
         cancel_goal(goal_handle, result);
         return;
-      } else {
-        RCLCPP_INFO_STREAM(
-          this->get_logger(),
-          "Base changed to: " << base);
       }
+      else
+      {
+        RCLCPP_INFO_STREAM(
+            this->get_logger(),
+            "Base changed to: " << base);
+      }
+    }
+    else
+    {
+      RCLCPP_INFO_STREAM(
+          this->get_logger(),
+          "No base change specified, using current base.");
     }
 
     // 2. Create and send the relative motion command
     //================================================
     // Check if there is a cancel request
     {
-      if (goal_handle->is_canceling()) {
+      if (goal_handle->is_canceling())
+      {
         cancel_goal(goal_handle, result);
         return;
       }
@@ -299,10 +331,11 @@ public:
       // Log the command
       const std::string motion_cmd = ss.str();
       RCLCPP_INFO_STREAM(
-        this->get_logger(),
-        "Relative motion command: " << motion_cmd);
+          this->get_logger(),
+          "Relative motion command: " << motion_cmd);
       m_cmd_sent_time = this->get_clock()->now();
-      if (!send_cmd(motion_cmd)) {
+      if (!send_cmd(motion_cmd))
+      {
         failed_goal(goal_handle, result);
         return;
       }
@@ -320,27 +353,29 @@ public:
       const std::string tag_cmd = ss.str();
       // Log the tag command
       RCLCPP_INFO_STREAM(
-        this->get_logger(),
-        "QueueTag for motion id: " << motion_id);
+          this->get_logger(),
+          "QueueTag for motion id: " << motion_id);
 
       sta_count = m_sta_msg_counter;
-      if (!send_cmd(tag_cmd)) {
+      if (!send_cmd(tag_cmd))
+      {
         RCLCPP_ERROR_STREAM(
-          this->get_logger(),
-          "Failed to tag the motion: " << motion_id <<
-            "impossible to determine when the motion will finish");
+            this->get_logger(),
+            "Failed to tag the motion: " << motion_id << "impossible to determine when the motion will finish");
         stop_motion(); // As we do not know if the motion was started or not, we stop it
         failed_goal(goal_handle, result);
         return;
-      } else {
+      }
+      else
+      {
         std::ostringstream tag_ss;
         // 2 digits for the motion id, with a leading zero if necessary
         tag_ss << std::setw(2) << std::setfill('0') << motion_id;
         m_motion_tag = tag_ss.str(); // Store the tag for later use
         m_motion_in_progress = true; // Set the motion in progress flag
         RCLCPP_INFO_STREAM(
-          this->get_logger(),
-          "QueueTag command sent for motion id: " << motion_id);
+            this->get_logger(),
+            "QueueTag command sent for motion id: " << motion_id);
       }
     }
 
@@ -352,40 +387,50 @@ public:
     // 5. Provide feedback to the action client
     //=========================================
     {
-      while (m_motion_in_progress) {
+      while (m_motion_in_progress)
+      {
         // Check if there is a cancel request
-        if (goal_handle->is_canceling()) {
+        if (goal_handle->is_canceling())
+        {
           cancel_goal(goal_handle, result);
           return;
         }
 
-        if (sta_count != m_sta_msg_counter) {
+        if (sta_count != m_sta_msg_counter)
+        {
           // Copy the STA message
           tm_msgs::msg::StaResponse sta_response = std::move(*m_sta_msg);
 
           // Check if the motion is finished and
           // check if the STA response is related to the motion command we just sent
-          if (sta_response.subcmd == "01") {
-            if (sta_response.subdata == m_motion_tag + ",true") {
+          if (sta_response.subcmd == "01")
+          {
+            if (sta_response.subdata == m_motion_tag + ",true")
+            {
               RCLCPP_INFO_STREAM(
-                this->get_logger(),
-                "Motion with id: " << m_motion_tag << " finished successfully.");
+                  this->get_logger(),
+                  "Motion with id: " << m_motion_tag << " finished successfully.");
               goal_reached(goal_handle, result);
               return;
-            } else {
-              if (sta_response.subdata == m_motion_tag + ",false") {
+            }
+            else
+            {
+              if (sta_response.subdata == m_motion_tag + ",false")
+              {
                 RCLCPP_ERROR_STREAM(
-                  this->get_logger(),
-                  "Motion with id: " << m_motion_tag << " failed.");
+                    this->get_logger(),
+                    "Motion with id: " << m_motion_tag << " failed.");
                 failed_goal(goal_handle, result);
                 return;
-              } else {
+              }
+              else
+              {
                 // QueueTag answer, a motion has stopped, but it is not the one we are waiting for
                 // This can happen if multiple motions are sent in a row
                 RCLCPP_WARN_STREAM(
-                  this->get_logger(),
-                  "Motion info id,completed: " << sta_response.subdata << ". But it is not the one we were waiting for ("
-                                               << m_motion_tag << ").");
+                    this->get_logger(),
+                    "Motion info id,completed: " << sta_response.subdata << ". But it is not the one we were waiting for ("
+                                                 << m_motion_tag << ").");
                 // We do not stop the motion, as it is not the one we are waiting for
                 sta_count = m_sta_msg_counter; // Reset the STA count to wait for the next STA message
               }
@@ -399,9 +444,12 @@ public:
 
         // Provide feedback to the action client
         feedback->motion_id = m_last_cmd_id;
-        if (m_motion_in_progress) {
+        if (m_motion_in_progress)
+        {
           feedback->status = "In progress";
-        } else {
+        }
+        else
+        {
           feedback->status = "Finished";
         }
         goal_handle->publish_feedback(feedback);
@@ -423,8 +471,8 @@ public:
    * @return The estimated duration of the motion in milliseconds
    */
   double motion_duration_estimation(
-    double distance, double velocity, double speed_percent,
-    double time_to_top_speed_ms)
+      double distance, double velocity, double speed_percent,
+      double time_to_top_speed_ms)
   {
     // Convert speed percentage to actual speed in mm/s
     double actual_speed = (velocity * speed_percent) / 100.0;
@@ -451,7 +499,8 @@ public:
 
     // If the distance is less than the distance covered during acceleration and deceleration
     // we suppose that the robot will not reach the top speed
-    if (distance <= 2 * distance_acceleration) {
+    if (distance <= 2 * distance_acceleration)
+    {
       // TODO(@yguel) add a more precise estimation of the time in this case
       //  For now, we assume that the robot will take the same time to accelerate and decelerate
       //  and will not reach the top speed.
@@ -482,7 +531,7 @@ protected:
   rclcpp::Subscription<tm_msgs::msg::StaResponse>::SharedPtr m_sta_response_subscription;
 
   rclcpp_action::Server<tm_msgs::action::GoToRelativePosition>::SharedPtr
-    m_relative_motion_action_server;
+      m_relative_motion_action_server;
 
   rclcpp::Client<tm_msgs::srv::SendScript>::SharedPtr m_send_script_client;
 
@@ -510,7 +559,7 @@ protected:
   bool m_motion_in_progress = false;
 };
 
-int main(int argc, char * argv[])
+int main(int argc, char *argv[])
 {
   rclcpp::init(argc, argv);
   rclcpp::ExecutorOptions options;
@@ -520,18 +569,18 @@ int main(int argc, char * argv[])
   executor->add_node(node);
 
   RCLCPP_INFO_STREAM(
-    rclcpp::get_logger("rclcpp"),
-    "Relative motion node started, waiting for commands...");
+      rclcpp::get_logger("rclcpp"),
+      "Relative motion node started, waiting for commands...");
 
   std::thread spin_thread([executor]()
-    {executor->spin();});
+                          { executor->spin(); });
 
   executor->cancel();
   spin_thread.join();
 
   RCLCPP_INFO_STREAM(
-    rclcpp::get_logger("rclcpp"),
-    "Relative motion node stopped, exiting...");
+      rclcpp::get_logger("rclcpp"),
+      "Relative motion node stopped, exiting...");
   rclcpp::shutdown();
   return 0;
 }
